@@ -2,19 +2,31 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Catatan Aktivitas & Keuangan Harian</title>
+
+<!-- PWA & Fullscreen -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f172a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Catatan Harian">
+<link rel="apple-touch-icon" href="icon-192.png">
+
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-  body { font-family: 'Plus Jakarta Sans', sans-serif; }
+  body { font-family: 'Plus Jakarta Sans', sans-serif; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
   .card { background: #ffffff; border: 1px solid #eef0f3; box-shadow: 0 1px 3px rgba(15,23,42,0.04), 0 1px 2px rgba(15,23,42,0.03); }
   .glow-green { background: linear-gradient(135deg, #ecfdf5 0%, #ffffff 100%); }
   .glow-red { background: linear-gradient(135deg, #fef2f2 0%, #ffffff 100%); }
+  .glow-blue { background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%); }
   ::-webkit-scrollbar { height: 6px; width: 6px; }
   ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+  .modal-overlay { background: rgba(15,23,42,0.5); backdrop-filter: blur(2px); }
 </style>
 </head>
 <body class="bg-[#f7f8fa] min-h-screen text-slate-800">
@@ -27,7 +39,14 @@
       <h1 class="text-xl md:text-2xl font-extrabold text-slate-900 tracking-tight">Catatan Harian</h1>
       <p class="text-xs md:text-sm text-slate-400 mt-0.5">Aktivitas & keuangan pribadi</p>
     </div>
-    <div class="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center text-sm font-bold">CH</div>
+    <div class="flex items-center gap-2">
+      <button id="btnExport" title="Backup data" class="w-9 h-9 rounded-full bg-white border border-slate-200 text-slate-500 flex items-center justify-center text-xs font-bold hover:bg-slate-50">↓</button>
+      <label title="Restore data" class="w-9 h-9 rounded-full bg-white border border-slate-200 text-slate-500 flex items-center justify-center text-xs font-bold hover:bg-slate-50 cursor-pointer">
+        ↑
+        <input type="file" id="btnImport" accept="application/json" class="hidden">
+      </label>
+      <div class="w-9 h-9 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold">CH</div>
+    </div>
   </header>
 
   <!-- TAB NAV -->
@@ -39,6 +58,11 @@
 
   <!-- TAB: DASHBOARD -->
   <section id="tab-dashboard" class="tab-content space-y-5">
+    <div class="card glow-blue rounded-2xl p-5">
+      <p class="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">Saldo Bersih</p>
+      <p id="totalSaldo" class="text-3xl md:text-4xl font-extrabold text-slate-900">Rp 0</p>
+    </div>
+
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div class="card glow-green rounded-2xl p-5">
         <div class="flex items-center justify-between mb-2">
@@ -67,13 +91,19 @@
       </div>
       <canvas id="chartKeuangan" height="130"></canvas>
     </div>
+
+    <div class="card rounded-2xl p-5">
+      <h2 class="font-bold text-slate-900 mb-3">Aktivitas Terbaru</h2>
+      <div id="listTerbaru" class="space-y-2"></div>
+    </div>
   </section>
 
   <!-- TAB: MANAJEMEN KEGIATAN -->
   <section id="tab-manajemen" class="tab-content hidden space-y-5">
     <div class="card rounded-2xl p-5">
-      <h2 class="font-bold text-slate-900 mb-4">Tambah Kegiatan</h2>
+      <h2 id="formTitle" class="font-bold text-slate-900 mb-4">Tambah Kegiatan</h2>
       <form id="formKegiatan" class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+        <input type="hidden" id="editId" value="">
         <div>
           <label class="text-xs font-semibold text-slate-500 mb-1 block">Nama Kegiatan</label>
           <input required type="text" id="namaKegiatan" class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300 outline-none transition">
@@ -87,6 +117,18 @@
           <input required type="date" id="tanggalKegiatan" class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300 outline-none transition">
         </div>
         <div>
+          <label class="text-xs font-semibold text-slate-500 mb-1 block">Kategori</label>
+          <select id="kategori" class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300 outline-none transition">
+            <option value="Umum">Umum</option>
+            <option value="Kuliah">Kuliah</option>
+            <option value="Organisasi">Organisasi</option>
+            <option value="Makan">Makan</option>
+            <option value="Transportasi">Transportasi</option>
+            <option value="Belanja">Belanja</option>
+            <option value="Lainnya">Lainnya</option>
+          </select>
+        </div>
+        <div>
           <label class="text-xs font-semibold text-slate-500 mb-1 block">Pemasukan (Rp)</label>
           <input type="number" min="0" id="pemasukan" value="0" class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300 outline-none transition">
         </div>
@@ -98,23 +140,27 @@
           <label class="text-xs font-semibold text-slate-500 mb-1 block">Catatan</label>
           <textarea id="catatan" rows="2" class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300 outline-none transition"></textarea>
         </div>
-        <div class="sm:col-span-2">
-          <button type="submit" class="w-full sm:w-auto bg-slate-900 text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-800 transition shadow-sm">Simpan Kegiatan</button>
+        <div class="sm:col-span-2 flex gap-2">
+          <button type="submit" id="btnSubmit" class="flex-1 sm:flex-none bg-slate-900 text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-800 transition shadow-sm">Simpan Kegiatan</button>
+          <button type="button" id="btnBatalEdit" class="hidden bg-slate-100 text-slate-600 px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-200 transition">Batal</button>
         </div>
       </form>
     </div>
 
     <div class="card rounded-2xl p-5">
-      <h2 class="font-bold text-slate-900 mb-4">Kegiatan Hari Ini</h2>
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 class="font-bold text-slate-900">Kegiatan Hari Ini</h2>
+        <input type="date" id="tanggalLihat" class="border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-50 focus:outline-none">
+      </div>
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="text-left text-xs text-slate-400 uppercase tracking-wide border-b border-slate-100">
               <th class="py-2.5 pr-3 font-semibold">Jam</th>
               <th class="py-2.5 pr-3 font-semibold">Kegiatan</th>
+              <th class="py-2.5 pr-3 font-semibold">Kategori</th>
               <th class="py-2.5 pr-3 font-semibold">Masuk</th>
               <th class="py-2.5 pr-3 font-semibold">Keluar</th>
-              <th class="py-2.5 pr-3 font-semibold">Catatan</th>
               <th class="py-2.5 pr-3 font-semibold"></th>
             </tr>
           </thead>
@@ -126,10 +172,18 @@
 
   <!-- TAB: LAPORAN -->
   <section id="tab-laporan" class="tab-content hidden space-y-5">
-    <div class="flex justify-end">
-      <button id="btnCetak" class="bg-slate-900 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-800 transition shadow-sm flex items-center gap-2">
-        Cetak PDF
-      </button>
+    <div class="card rounded-2xl p-4 flex flex-wrap items-end gap-3">
+      <div>
+        <label class="text-xs font-semibold text-slate-500 mb-1 block">Dari Tanggal</label>
+        <input type="date" id="filterDariTanggal" class="border border-slate-200 rounded-xl px-3 py-2 text-xs bg-slate-50 focus:outline-none">
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-slate-500 mb-1 block">Sampai Tanggal</label>
+        <input type="date" id="filterSampaiTanggal" class="border border-slate-200 rounded-xl px-3 py-2 text-xs bg-slate-50 focus:outline-none">
+      </div>
+      <button id="btnFilterLaporan" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-semibold hover:bg-slate-800">Terapkan</button>
+      <button id="btnResetLaporan" class="bg-slate-100 text-slate-600 px-4 py-2 rounded-xl text-xs font-semibold hover:bg-slate-200">Reset</button>
+      <button id="btnCetak" class="ml-auto bg-rose-600 text-white px-5 py-2 rounded-xl text-xs font-semibold hover:bg-rose-700 shadow-sm">Cetak PDF</button>
     </div>
 
     <div id="areaLaporan" class="card rounded-2xl p-5">
@@ -141,6 +195,7 @@
               <th class="py-2.5 pr-3 font-semibold">Tanggal</th>
               <th class="py-2.5 pr-3 font-semibold">Jam</th>
               <th class="py-2.5 pr-3 font-semibold">Kegiatan</th>
+              <th class="py-2.5 pr-3 font-semibold">Kategori</th>
               <th class="py-2.5 pr-3 font-semibold">Masuk</th>
               <th class="py-2.5 pr-3 font-semibold">Keluar</th>
               <th class="py-2.5 pr-3 font-semibold">Catatan</th>
@@ -149,7 +204,7 @@
           <tbody id="tabelLaporan"></tbody>
           <tfoot>
             <tr class="font-bold border-t border-slate-200">
-              <td colspan="3" class="py-3">Total</td>
+              <td colspan="4" class="py-3">Total</td>
               <td id="footerPemasukan" class="py-3 text-emerald-600"></td>
               <td id="footerPengeluaran" class="py-3 text-rose-600"></td>
               <td></td>
@@ -179,6 +234,7 @@ function todayStr() {
   return d.toISOString().slice(0,10);
 }
 
+// ============ TAB NAVIGATION ============
 const tabButtons = document.querySelectorAll('.tab-btn');
 const tabContents = document.querySelectorAll('.tab-content');
 
@@ -195,46 +251,103 @@ function setActiveTab(tab) {
   tabContents.forEach(sec => {
     sec.classList.toggle('hidden', sec.id !== 'tab-' + tab);
   });
-  if (tab === 'dashboard') renderChart();
+  if (tab === 'dashboard') { renderChart(); renderTerbaru(); }
   if (tab === 'laporan') renderLaporan();
+  if (tab === 'manajemen') renderTabelHariIni();
 }
 
 tabButtons.forEach(btn => {
   btn.addEventListener('click', () => setActiveTab(btn.dataset.tab));
 });
 
+// ============ FORM TAMBAH / EDIT ============
 const form = document.getElementById('formKegiatan');
+const tanggalLihat = document.getElementById('tanggalLihat');
 document.getElementById('tanggalKegiatan').value = todayStr();
+tanggalLihat.value = todayStr();
 
 form.addEventListener('submit', function(e) {
   e.preventDefault();
   const data = getData();
-  const newItem = {
-    id: Date.now().toString(),
+  const editId = document.getElementById('editId').value;
+
+  const payload = {
     tanggal: document.getElementById('tanggalKegiatan').value,
     namaKegiatan: document.getElementById('namaKegiatan').value,
     jamKegiatan: document.getElementById('jamKegiatan').value,
+    kategori: document.getElementById('kategori').value,
     pemasukan: Number(document.getElementById('pemasukan').value) || 0,
     pengeluaran: Number(document.getElementById('pengeluaran').value) || 0,
     catatan: document.getElementById('catatan').value
   };
-  data.push(newItem);
+
+  if (editId) {
+    const idx = data.findIndex(d => d.id === editId);
+    if (idx !== -1) data[idx] = { ...data[idx], ...payload };
+  } else {
+    data.push({ id: Date.now().toString(), ...payload });
+  }
+
   saveData(data);
-  form.reset();
-  document.getElementById('tanggalKegiatan').value = todayStr();
-  document.getElementById('pemasukan').value = 0;
-  document.getElementById('pengeluaran').value = 0;
+  resetForm();
   renderTabelHariIni();
   renderDashboardTotals();
   renderChart();
+  renderTerbaru();
 });
 
+document.getElementById('btnBatalEdit').addEventListener('click', resetForm);
+
+function resetForm() {
+  form.reset();
+  document.getElementById('editId').value = '';
+  document.getElementById('tanggalKegiatan').value = todayStr();
+  document.getElementById('pemasukan').value = 0;
+  document.getElementById('pengeluaran').value = 0;
+  document.getElementById('formTitle').textContent = 'Tambah Kegiatan';
+  document.getElementById('btnSubmit').textContent = 'Simpan Kegiatan';
+  document.getElementById('btnBatalEdit').classList.add('hidden');
+}
+
+function editItem(id) {
+  const data = getData();
+  const item = data.find(d => d.id === id);
+  if (!item) return;
+  document.getElementById('editId').value = item.id;
+  document.getElementById('namaKegiatan').value = item.namaKegiatan;
+  document.getElementById('jamKegiatan').value = item.jamKegiatan;
+  document.getElementById('tanggalKegiatan').value = item.tanggal;
+  document.getElementById('kategori').value = item.kategori || 'Umum';
+  document.getElementById('pemasukan').value = item.pemasukan;
+  document.getElementById('pengeluaran').value = item.pengeluaran;
+  document.getElementById('catatan').value = item.catatan || '';
+  document.getElementById('formTitle').textContent = 'Edit Kegiatan';
+  document.getElementById('btnSubmit').textContent = 'Update Kegiatan';
+  document.getElementById('btnBatalEdit').classList.remove('hidden');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function hapusItem(id) {
+  if (!confirm('Hapus kegiatan ini?')) return;
+  let data = getData();
+  data = data.filter(d => d.id !== id);
+  saveData(data);
+  renderTabelHariIni();
+  renderDashboardTotals();
+  renderChart();
+  renderLaporan();
+  renderTerbaru();
+}
+
+tanggalLihat.addEventListener('change', renderTabelHariIni);
+
 function renderTabelHariIni() {
-  const data = getData().filter(d => d.tanggal === todayStr());
+  const tgl = tanggalLihat.value || todayStr();
+  const data = getData().filter(d => d.tanggal === tgl);
   const tbody = document.getElementById('tabelHariIni');
   tbody.innerHTML = '';
   if (data.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-300 text-sm">Belum ada data hari ini</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-300 text-sm">Belum ada data</td></tr>';
     return;
   }
   data.sort((a,b) => a.jamKegiatan.localeCompare(b.jamKegiatan));
@@ -244,44 +357,60 @@ function renderTabelHariIni() {
     tr.innerHTML = `
       <td class="py-3 pr-3 text-slate-600">${item.jamKegiatan}</td>
       <td class="py-3 pr-3 font-medium text-slate-800">${item.namaKegiatan}</td>
+      <td class="py-3 pr-3"><span class="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-full">${item.kategori || 'Umum'}</span></td>
       <td class="py-3 pr-3 text-emerald-600 font-medium">${formatRupiah(item.pemasukan)}</td>
       <td class="py-3 pr-3 text-rose-600 font-medium">${formatRupiah(item.pengeluaran)}</td>
-      <td class="py-3 pr-3 text-slate-500">${item.catatan || '-'}</td>
-      <td class="py-3 pr-3">
+      <td class="py-3 pr-3 whitespace-nowrap">
+        <button class="btnEdit text-slate-500 hover:text-slate-900 text-xs font-semibold mr-2" data-id="${item.id}">Edit</button>
         <button class="btnHapus text-rose-500 hover:text-rose-700 text-xs font-semibold" data-id="${item.id}">Hapus</button>
       </td>
     `;
     tbody.appendChild(tr);
   });
 
-  tbody.querySelectorAll('.btnHapus').forEach(btn => {
-    btn.addEventListener('click', function() {
-      let data = getData();
-      data = data.filter(d => d.id !== this.dataset.id);
-      saveData(data);
-      renderTabelHariIni();
-      renderDashboardTotals();
-      renderChart();
-      renderLaporan();
-    });
-  });
+  tbody.querySelectorAll('.btnEdit').forEach(btn => btn.addEventListener('click', function() { editItem(this.dataset.id); }));
+  tbody.querySelectorAll('.btnHapus').forEach(btn => btn.addEventListener('click', function() { hapusItem(this.dataset.id); }));
 }
 
+// ============ DASHBOARD ============
 function renderDashboardTotals() {
   const data = getData();
   const totalPemasukan = data.reduce((sum, d) => sum + Number(d.pemasukan || 0), 0);
   const totalPengeluaran = data.reduce((sum, d) => sum + Number(d.pengeluaran || 0), 0);
   document.getElementById('totalPemasukan').textContent = formatRupiah(totalPemasukan);
   document.getElementById('totalPengeluaran').textContent = formatRupiah(totalPengeluaran);
+  document.getElementById('totalSaldo').textContent = formatRupiah(totalPemasukan - totalPengeluaran);
+}
+
+function renderTerbaru() {
+  const data = getData().slice().sort((a,b) => (b.tanggal + b.jamKegiatan).localeCompare(a.tanggal + a.jamKegiatan)).slice(0, 5);
+  const container = document.getElementById('listTerbaru');
+  container.innerHTML = '';
+  if (data.length === 0) {
+    container.innerHTML = '<p class="text-sm text-slate-300 text-center py-4">Belum ada aktivitas</p>';
+    return;
+  }
+  data.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'flex items-center justify-between py-2 border-b border-slate-50 last:border-0';
+    const nilai = item.pemasukan > 0 ? `+${formatRupiah(item.pemasukan)}` : `-${formatRupiah(item.pengeluaran)}`;
+    const warna = item.pemasukan > 0 ? 'text-emerald-600' : 'text-rose-600';
+    div.innerHTML = `
+      <div>
+        <p class="text-sm font-medium text-slate-800">${item.namaKegiatan}</p>
+        <p class="text-xs text-slate-400">${item.tanggal} · ${item.jamKegiatan} · ${item.kategori || 'Umum'}</p>
+      </div>
+      <p class="text-sm font-semibold ${warna}">${nilai}</p>
+    `;
+    container.appendChild(div);
+  });
 }
 
 function filterByPeriode(data, periode) {
   const now = new Date();
   return data.filter(d => {
     const tgl = new Date(d.tanggal + 'T00:00:00');
-    if (periode === 'hari') {
-      return d.tanggal === todayStr();
-    }
+    if (periode === 'hari') return d.tanggal === todayStr();
     if (periode === 'minggu') {
       const startOfWeek = new Date(now);
       const day = startOfWeek.getDay();
@@ -293,9 +422,7 @@ function filterByPeriode(data, periode) {
       endOfWeek.setHours(23,59,59,999);
       return tgl >= startOfWeek && tgl <= endOfWeek;
     }
-    if (periode === 'bulan') {
-      return tgl.getMonth() === now.getMonth() && tgl.getFullYear() === now.getFullYear();
-    }
+    if (periode === 'bulan') return tgl.getMonth() === now.getMonth() && tgl.getFullYear() === now.getFullYear();
     return true;
   });
 }
@@ -322,45 +449,42 @@ function renderChart() {
     data: {
       labels: labels.length ? labels : ['Tidak ada data'],
       datasets: [
-        {
-          label: 'Pemasukan',
-          data: pemasukanData.length ? pemasukanData : [0],
-          backgroundColor: '#10b981',
-          borderRadius: 6,
-          maxBarThickness: 28
-        },
-        {
-          label: 'Pengeluaran',
-          data: pengeluaranData.length ? pengeluaranData : [0],
-          backgroundColor: '#f43f5e',
-          borderRadius: 6,
-          maxBarThickness: 28
-        }
+        { label: 'Pemasukan', data: pemasukanData.length ? pemasukanData : [0], backgroundColor: '#10b981', borderRadius: 6, maxBarThickness: 28 },
+        { label: 'Pengeluaran', data: pengeluaranData.length ? pengeluaranData : [0], backgroundColor: '#f43f5e', borderRadius: 6, maxBarThickness: 28 }
       ]
     },
     options: {
       responsive: true,
-      plugins: {
-        legend: { position: 'top', labels: { usePointStyle: true, font: { family: 'Plus Jakarta Sans' } } }
-      },
-      scales: {
-        y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
-        x: { grid: { display: false } }
-      }
+      plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: { family: 'Plus Jakarta Sans' } } } },
+      scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } }
     }
   });
 }
 
 document.getElementById('filterGrafik').addEventListener('change', renderChart);
 
+// ============ LAPORAN ============
+document.getElementById('btnFilterLaporan').addEventListener('click', renderLaporan);
+document.getElementById('btnResetLaporan').addEventListener('click', () => {
+  document.getElementById('filterDariTanggal').value = '';
+  document.getElementById('filterSampaiTanggal').value = '';
+  renderLaporan();
+});
+
 function renderLaporan() {
-  const data = getData().slice().sort((a,b) => (a.tanggal + a.jamKegiatan).localeCompare(b.tanggal + b.jamKegiatan));
+  let data = getData().slice().sort((a,b) => (a.tanggal + a.jamKegiatan).localeCompare(b.tanggal + b.jamKegiatan));
+
+  const dari = document.getElementById('filterDariTanggal').value;
+  const sampai = document.getElementById('filterSampaiTanggal').value;
+  if (dari) data = data.filter(d => d.tanggal >= dari);
+  if (sampai) data = data.filter(d => d.tanggal <= sampai);
+
   const tbody = document.getElementById('tabelLaporan');
   tbody.innerHTML = '';
   let totalPemasukan = 0, totalPengeluaran = 0;
 
   if (data.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-300 text-sm">Belum ada data</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-300 text-sm">Belum ada data</td></tr>';
   } else {
     data.forEach(item => {
       totalPemasukan += Number(item.pemasukan || 0);
@@ -371,6 +495,7 @@ function renderLaporan() {
         <td class="py-3 pr-3 text-slate-600">${item.tanggal}</td>
         <td class="py-3 pr-3 text-slate-600">${item.jamKegiatan}</td>
         <td class="py-3 pr-3 font-medium text-slate-800">${item.namaKegiatan}</td>
+        <td class="py-3 pr-3"><span class="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-full">${item.kategori || 'Umum'}</span></td>
         <td class="py-3 pr-3 text-emerald-600 font-medium">${formatRupiah(item.pemasukan)}</td>
         <td class="py-3 pr-3 text-rose-600 font-medium">${formatRupiah(item.pengeluaran)}</td>
         <td class="py-3 pr-3 text-slate-500">${item.catatan || '-'}</td>
@@ -394,11 +519,59 @@ document.getElementById('btnCetak').addEventListener('click', function() {
   html2pdf().set(opt).from(element).save();
 });
 
+// ============ BACKUP / RESTORE ============
+document.getElementById('btnExport').addEventListener('click', function() {
+  const data = getData();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'backup-catatan-' + todayStr() + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('btnImport').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(evt) {
+    try {
+      const imported = JSON.parse(evt.target.result);
+      if (!Array.isArray(imported)) throw new Error('Format tidak valid');
+      if (confirm(`Import ${imported.length} data? Data lama akan digabung.`)) {
+        const existing = getData();
+        const merged = [...existing, ...imported.filter(d => !existing.some(e => e.id === d.id))];
+        saveData(merged);
+        renderTabelHariIni();
+        renderDashboardTotals();
+        renderChart();
+        renderLaporan();
+        renderTerbaru();
+        alert('Data berhasil di-import');
+      }
+    } catch (err) {
+      alert('File tidak valid');
+    }
+    e.target.value = '';
+  };
+  reader.readAsText(file);
+});
+
+// ============ SERVICE WORKER ============
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+
+// ============ INIT ============
 setActiveTab('dashboard');
 renderDashboardTotals();
 renderTabelHariIni();
 renderChart();
 renderLaporan();
+renderTerbaru();
 </script>
 
 </body>
